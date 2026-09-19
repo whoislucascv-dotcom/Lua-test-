@@ -1,4 +1,4 @@
-local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/StyearX/Script/refs/heads/main/Phantomwrym/Fluent-modded/Main.lua"))()
+ local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/StyearX/Script/refs/heads/main/Phantomwrym/Fluent-modded/Main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/StyearX/Script/refs/heads/main/Phantomwrym/Fluent-modded/SaveManager.lua"))()
 local FBM = loadstring(game:HttpGet("https://raw.githubusercontent.com/StyearX/Script/refs/heads/main/Phantomwrym/Fluent-modded/FloatingButtonManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/StyearX/Script/refs/heads/main/Phantomwrym/Fluent-modded/InterfaceManager.lua"))()
@@ -49,21 +49,308 @@ local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
 -- === HYPERION X CUSTOM IMAGE ===
+-- === HYPERION X CUSTOM IMAGE ===
+-- Discord CDN links with ?ex= expire, so we always fall back to a Roblox asset.
 local imageUrl = "https://cdn.discordapp.com/attachments/1548760311731855381/1550261228322951189/Screenshot_20260917_164338_Roblox.jpg?ex=6aadb0c7&is=6aac5f47&hm=b72d824505a5bc966e52700d559cc1b95f5c291b110fa3498e99c3cfd839db14&"
 local fileName = "HyperionHubX_Logo.jpg"
 local customAssetUrl
 
--- Keep the built-in Roblox asset as an immediate fallback.
--- Some environments do not expose getcustomasset/getsynasset, or may reject
--- a Discord CDN response. In those cases the logo still remains visible.
+-- Permanent Roblox asset: ALWAYS loads, even if Discord is dead.
+local FALLBACK_ICON = "rbxassetid://139104323768501"
+
 local assetLoader = getcustomasset or getsynasset
-if assetLoader and writefile then
+if assetLoader and writefile and isfile and not isfile(fileName) then
     pcall(function()
         local imageData = game:HttpGet(imageUrl)
-        writefile(fileName, imageData)
+        if imageData and #imageData > 0 then
+            writefile(fileName, imageData)
+        end
+    end)
+end
+
+if assetLoader and isfile and isfile(fileName) then
+    pcall(function()
         customAssetUrl = assetLoader(fileName)
     end)
 end
+
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local PathfindingService = game:GetService("PathfindingService")
+local CAS = game:GetService("ContextActionService")
+
+-- Sound helper (defined early so the logo click can use it)
+local function playSound(soundId)
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://" .. soundId
+    sound.Parent = game:GetService("SoundService")
+    sound:Play()
+    sound.Ended:Connect(function()
+        sound:Destroy()
+    end)
+end
+
+-- Optimize (1)
+local function GetAutoDuration()
+    local dt = RunService.RenderStepped:Wait()
+    local fps = 1 / dt
+    local duration = 60 / math.clamp(fps, 5, 60)
+    return math.clamp(duration, 1, 6)
+end
+local Duration = GetAutoDuration()
+
+-- Toggle Gui
+local openshit = Instance.new("ScreenGui")
+openshit.Name = "openshit"
+openshit.Parent = LocalPlayer.PlayerGui
+openshit.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+openshit.ResetOnSpawn = false
+
+local mainopen = Instance.new("TextButton")
+mainopen.Name = "mainopen"
+mainopen.Parent = openshit
+mainopen.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+mainopen.BackgroundTransparency = 1
+mainopen.Position = UDim2.new(0.101969875, 0, 0.110441767, 0)
+mainopen.Size = UDim2.new(0, 58, 0, 58)
+mainopen.Text = ""
+mainopen.Visible = true
+mainopen.ZIndex = 1
+
+local mainopens = Instance.new("UICorner")
+mainopens.Parent = mainopen
+
+local SizeBackMulti = 0.1
+local AssetsBackground = "rbxassetid://135015813011627"
+
+-- === ROTATING BACKGROUND IMAGE ===
+local backgroundImage = Instance.new("ImageLabel")
+backgroundImage.Name = "RotatingBackground"
+backgroundImage.Parent = mainopen
+backgroundImage.Size = UDim2.new(1.8 + SizeBackMulti, 0, 1.8 + SizeBackMulti, 0)
+backgroundImage.Position = UDim2.new(0.5, 0, 0.5, 0)
+backgroundImage.AnchorPoint = Vector2.new(0.5, 0.5)
+backgroundImage.BackgroundTransparency = 1
+backgroundImage.Image = AssetsBackground
+backgroundImage.SizeConstraint = Enum.SizeConstraint.RelativeXX
+backgroundImage.ZIndex = 0
+backgroundImage.Active = false
+
+-- === STATIC FRONT IMAGE ===
+local WIDTH = 1
+local HEIGHT = 1
+
+local frontImage = Instance.new("ImageLabel")
+frontImage.Name = "StaticIcon"
+frontImage.Parent = mainopen
+frontImage.Size = UDim2.new(WIDTH, 0, HEIGHT, 0)
+frontImage.Position = UDim2.new(0.5, 0, 0.5, 0)
+frontImage.AnchorPoint = Vector2.new(0.5, 0.5)
+frontImage.BackgroundTransparency = 1
+-- Use downloaded image if it exists, otherwise the Roblox asset (always visible).
+frontImage.Image = customAssetUrl or FALLBACK_ICON
+frontImage.ScaleType = Enum.ScaleType.Fit
+frontImage.ZIndex = 2
+frontImage.Visible = true
+frontImage.Active = false
+
+local frontCorner = Instance.new("UICorner")
+frontCorner.CornerRadius = UDim.new(0, 0)
+frontCorner.Parent = frontImage
+
+-- === ROTATION LOOP ===
+local rotation = 0
+local speed = 90
+local lastTime = tick()
+
+task.spawn(function()
+    while true do
+        local now = tick()
+        local delta = now - lastTime
+        lastTime = now
+        rotation = (rotation + speed * delta) % 360
+        backgroundImage.Rotation = rotation
+        task.wait()
+    end
+end)
+
+-- === DRAGGABLE (drag only; lock is handled below) ===
+local function MakeDraggable(handle, object, startLocked)
+    object:SetAttribute("Locked", startLocked or false)
+
+    local dragging = false
+    local dragInput
+    local dragStart
+    local startPos
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        if object:GetAttribute("Locked") then return end
+
+        dragging = true
+        dragStart = input.Position
+        startPos = object.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end)
+
+    handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging and not object:GetAttribute("Locked") then
+            local delta = input.Position - dragStart
+            object.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+MakeDraggable(mainopen, mainopen, false)
+
+-- === LOGO VISIBILITY BUTTON ===
+-- Parented to mainopen so it moves together with the logo.
+local visibilityButton = Instance.new("TextButton")
+visibilityButton.Name = "LogoVisibilityButton"
+visibilityButton.Parent = mainopen
+visibilityButton.Size = UDim2.new(0, 28, 0, 28)
+visibilityButton.Position = UDim2.new(1, 4, 0.5, -14) -- sits to the right of the logo
+visibilityButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+visibilityButton.BackgroundTransparency = 0.1
+visibilityButton.Text = "👁"
+visibilityButton.TextSize = 16
+visibilityButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+visibilityButton.Visible = false
+visibilityButton.ZIndex = 20
+visibilityButton.Active = true
+
+local visibilityCorner = Instance.new("UICorner")
+visibilityCorner.CornerRadius = UDim.new(0, 6)
+visibilityCorner.Parent = visibilityButton
+
+local logoVisible = true
+
+local function SetLogoVisible(visible)
+    logoVisible = visible
+    backgroundImage.Visible = visible
+    frontImage.Visible = visible
+    -- mainopen stays visible as an invisible hitbox so you can still hold/click it.
+end
+
+-- Tell mainopen's handler when the button is being pressed.
+local buttonPressed = false
+visibilityButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        buttonPressed = true
+    end
+end)
+
+visibilityButton.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        task.wait()
+        buttonPressed = false
+    end
+end)
+
+visibilityButton.MouseButton1Click:Connect(function()
+    SetLogoVisible(not logoVisible)
+end)
+
+-- === LOGO INPUT ===
+-- Short click      -> toggle the UI open / closed
+-- Hold 3 seconds   -> lock / unlock the logo
+-- Hold 4 seconds   -> show / hide the eye button
+
+local LOCK_HOLD = 3.0
+local VIS_HOLD  = 4.0
+local CLICK_MAX = 0.4
+
+local pressStart = 0
+local lockToken, visToken = 0, 0
+local lockFired, visFired = false, false
+
+local logoClickSounds = {
+    "7127123605", "137566474343039", "438666542", "257001341",
+    "257000833", "7127123554", "131607746976396",
+    "97325669841459", "109312518223078"
+}
+
+mainopen.InputBegan:Connect(function(input)
+    if input.UserInputType ~= Enum.UserInputType.MouseButton1
+    and input.UserInputType ~= Enum.UserInputType.Touch then return end
+    if buttonPressed then return end
+
+    pressStart = tick()
+    lockFired, visFired = false, false
+
+    lockToken += 1
+    visToken  += 1
+    local myLock = lockToken
+    local myVis  = visToken
+
+    -- Hold 3s -> lock / unlock
+    task.delay(LOCK_HOLD, function()
+        if myLock ~= lockToken then return end
+        lockFired = true
+        local newState = not mainopen:GetAttribute("Locked")
+        mainopen:SetAttribute("Locked", newState)
+        Fluent:Notify({
+            Title = newState and "Logo Locked" or "Logo Unlocked",
+            Content = newState and "The logo is locked in place." or "The logo can now be moved.",
+            Duration = 2
+        })
+    end)
+
+    -- Hold 4s -> show / hide the eye button
+    task.delay(VIS_HOLD, function()
+        if myVis ~= visToken then return end
+        visFired = true
+        visibilityButton.Visible = not visibilityButton.Visible
+    end)
+
+    input.Changed:Connect(function()
+        if input.UserInputState == Enum.UserInputState.End then
+            lockToken += 1
+            visToken  += 1
+
+            local heldFor = tick() - pressStart
+            -- Short click: toggle UI
+            if not lockFired and not visFired and heldFor < CLICK_MAX then
+                playSound(logoClickSounds[math.random(#logoClickSounds)])
+                Window:Minimize()
+
+                -- spin animation
+                local function smoothSpeed(target, duration)
+                    local start = speed
+                    local steps = 30
+                    for i = 1, steps do
+                        speed = start + (target - start) * (i / steps)
+                        task.wait(duration / steps)
+                    end
+                    speed = target
+                end
+                task.spawn(function()
+                    smoothSpeed(360, 0.4); task.wait(0.5)
+                    smoothSpeed(180, 0.4); task.wait(0.3)
+                    smoothSpeed(90,  0.4)
+                end)
+            end
+        end
+    end)
+end)
 
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
