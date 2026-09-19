@@ -51,7 +51,7 @@ local LocalPlayer = Players.LocalPlayer
 -- === HYPERION X CUSTOM IMAGE ===
 -- === HYPERION X CUSTOM IMAGE ===
 -- Discord CDN links with ?ex= expire, so we always fall back to a Roblox asset.
-local imageUrl = "https://cdn.discordapp.com/attachments/1548760311731855381/1550261228322951189/Screenshot_20260917_164338_Roblox.jpg?ex=6aadb0c7&is=6aac5f47&hm=b72d824505a5bc966e52700d559cc1b95f5c291b110fa3498e99c3cfd839db14&"
+local imageUrl = "https://i.ibb.co/ZzjhCDRm/Screenshot-20260917-164338-Roblox.jpg"
 local fileName = "HyperionHubX_Logo.jpg"
 local customAssetUrl
 
