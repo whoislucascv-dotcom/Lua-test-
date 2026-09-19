@@ -350,7 +350,7 @@ mainopen.InputBegan:Connect(function(input)
             end
         end
     end)
-end))
+end)
 
 -- FPS Counter
 
